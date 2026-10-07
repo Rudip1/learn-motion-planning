@@ -1,5 +1,5 @@
 # make build      configure and build the C++ library, tests and examples in build/cmake
-# make test       run the C++ test suite
+# make test       run the C++ test suite, then the Python reference tests if the module is installed
 # make python     install the Python module in editable mode (builds the C++ through scikit-build-core)
 # make notebooks  regenerate notebooks from tools/notebooks/ and execute every solution notebook
 # make figures    regenerate 1_theory/figures/
@@ -20,9 +20,14 @@ build:
 
 test: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure -j $(JOBS)
+	@if $(PYTHON) -c "import motion_planning, pytest" 2>/dev/null; then \
+		$(PYTHON) -m pytest -q python/tests; \
+	else \
+		echo "Python module or pytest not installed: skipping python/tests (pip install -e '.[test]')"; \
+	fi
 
 python:
-	$(PYTHON) -m pip install -e ".[notebooks]"
+	$(PYTHON) -m pip install -e ".[notebooks,test]"
 
 notebooks:
 	$(PYTHON) tools/build_notebooks.py
