@@ -1,9 +1,11 @@
 // Python bindings for the motion_planning C++ library. One `bind_*` function per chapter.
 #include <pybind11/eigen.h>
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
 #include "motion_planning/angles.hpp"
+#include "motion_planning/grid.hpp"
 #include "motion_planning/kinematics.hpp"
 #include "motion_planning/pose_control.hpp"
 
@@ -154,10 +156,104 @@ void bind_pose_control(py::module_& m) {
           "model"_a, "q0"_a, "goal"_a, "gains"_a = PointGains{}, "options"_a = RegulationOptions{});
 }
 
+Eigen::Matrix<int, Eigen::Dynamic, 2, Eigen::RowMajor> cells_to_array(const std::vector<Cell>& cells) {
+    Eigen::Matrix<int, Eigen::Dynamic, 2, Eigen::RowMajor> a(static_cast<Eigen::Index>(cells.size()), 2);
+    for (std::size_t i = 0; i < cells.size(); ++i)
+        a.row(static_cast<Eigen::Index>(i)) << cells[i].x, cells[i].y;
+    return a;
+}
+
+void bind_grid(py::module_& m) {
+    py::class_<Cell>(m, "Cell", "Integer cell index (x = column, y = row).")
+        .def(py::init<>())
+        .def(py::init([](int x, int y) { return Cell{x, y}; }), "x"_a, "y"_a)
+        .def(py::init([](py::sequence s) {
+            if (py::len(s) != 2) throw py::value_error("a cell needs two indices");
+            return Cell{s[0].cast<int>(), s[1].cast<int>()};
+        }))
+        .def_readwrite("x", &Cell::x)
+        .def_readwrite("y", &Cell::y)
+        .def("__eq__", &Cell::operator==)
+        .def("__hash__", [](const Cell& c) { return py::hash(py::make_tuple(c.x, c.y)); })
+        .def("__iter__", [](const Cell& c) { return py::iter(py::make_tuple(c.x, c.y)); })
+        .def("__repr__",
+             [](const Cell& c) { return "Cell(" + std::to_string(c.x) + ", " + std::to_string(c.y) + ")"; });
+    py::implicitly_convertible<py::tuple, Cell>();
+    py::implicitly_convertible<py::list, Cell>();
+
+    py::enum_<Connectivity>(m, "Connectivity")
+        .value("Four", Connectivity::Four)
+        .value("Eight", Connectivity::Eight);
+
+    py::class_<OccupancyGrid>(
+        m, "OccupancyGrid",
+        "Binary occupancy grid; array rows are y, columns are x; outside counts as occupied.")
+        .def(py::init<int, int, double, const Eigen::Vector2d&>(), "width"_a, "height"_a,
+             "resolution"_a = 1.0, "origin"_a = Eigen::Vector2d::Zero())
+        .def(py::init([](py::array_t<std::uint8_t, py::array::c_style | py::array::forcecast> a, double res,
+                         const Eigen::Vector2d& origin) {
+                 if (a.ndim() != 2) throw py::value_error("occupancy must be a 2-D array");
+                 GridArray g(a.shape(0), a.shape(1));
+                 std::copy(a.data(), a.data() + a.size(), g.data());
+                 return OccupancyGrid(g, res, origin);
+             }),
+             "occupancy"_a, "resolution"_a = 1.0, "origin"_a = Eigen::Vector2d::Zero())
+        .def_property_readonly("width", &OccupancyGrid::width)
+        .def_property_readonly("height", &OccupancyGrid::height)
+        .def_property_readonly("resolution", &OccupancyGrid::resolution)
+        .def_property_readonly("origin", &OccupancyGrid::origin)
+        .def_property_readonly(
+            "extent",
+            [](const OccupancyGrid& g) {
+                const double h = g.resolution();
+                return py::make_tuple(g.origin().x(), g.origin().x() + h * g.width(), g.origin().y(),
+                                      g.origin().y() + h * g.height());
+            },
+            "(xmin, xmax, ymin, ymax), for matplotlib's imshow(extent=...).")
+        .def("in_bounds", &OccupancyGrid::in_bounds, "cell"_a)
+        .def("occupied", &OccupancyGrid::occupied, "cell"_a)
+        .def("set", &OccupancyGrid::set, "cell"_a, "occupied"_a)
+        .def("world_to_cell", &OccupancyGrid::world_to_cell, "p"_a)
+        .def("cell_center", &OccupancyGrid::cell_center, "cell"_a)
+        .def("point_free", &OccupancyGrid::point_free, "p"_a)
+        .def("to_array", &OccupancyGrid::to_array);
+
+    m.def("brushfire", &brushfire, "grid"_a, "connectivity"_a = Connectivity::Four, "Eq. (2.6).");
+    m.def("distance_transform", &distance_transform, "grid"_a,
+          "Exact Euclidean transform, eqs. (2.7)-(2.9).");
+    m.def("squared_distance_transform_1d", &squared_distance_transform_1d, "f"_a, "Eq. (2.8).");
+    m.def("inflate", &inflate, "grid"_a, "radius"_a, "Eq. (2.10).");
+    m.def("disc_free", &disc_free, "grid"_a, "distance"_a, "p"_a, "radius"_a, "Eq. (2.11).");
+    m.def(
+        "traverse_segment",
+        [](const OccupancyGrid& g, const Eigen::Vector2d& a, const Eigen::Vector2d& b) {
+            return cells_to_array(traverse_segment(g, a, b));
+        },
+        "grid"_a, "p0"_a, "p1"_a, "Cells crossed by the segment, as an (N, 2) array of (x, y).");
+    m.def(
+        "bresenham", [](const Cell& a, const Cell& b) { return cells_to_array(bresenham(a, b)); }, "a"_a,
+        "b"_a, "Bresenham cells from a to b, as an (N, 2) array of (x, y).");
+    m.def("segment_free", &segment_free, "grid"_a, "p0"_a, "p1"_a);
+
+    py::class_<RectangleFootprint>(m, "RectangleFootprint")
+        .def(py::init([](double rear, double front, double half_width) {
+                 return RectangleFootprint{rear, front, half_width};
+             }),
+             "rear"_a = 0.0, "front"_a = 1.0, "half_width"_a = 0.25)
+        .def_readwrite("rear", &RectangleFootprint::rear)
+        .def_readwrite("front", &RectangleFootprint::front)
+        .def_readwrite("half_width", &RectangleFootprint::half_width)
+        .def("corners", &RectangleFootprint::corners, "q"_a);
+    m.def("footprint_free", &footprint_free, "grid"_a, "q"_a, "footprint"_a, "Eq. (2.12).");
+    m.def("configuration_space_slice", &configuration_space_slice, "grid"_a, "footprint"_a, "theta"_a,
+          "Eq. (2.2).");
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
     m.doc() = "C++ core of the motion_planning learning module.";
     bind_kinematics(m);
     bind_pose_control(m);
+    bind_grid(m);
 }

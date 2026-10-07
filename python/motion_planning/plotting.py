@@ -93,3 +93,25 @@ def new_axes(ncols=1, nrows=1, width=4.5, height=4.0, **kwargs):
     use_style()
     fig, axes = plt.subplots(nrows, ncols, figsize=(width * ncols, height * nrows), **kwargs)
     return fig, axes
+
+
+def show_grid(ax, grid, field=None, cmap="viridis", obstacle_alpha=1.0, colorbar=None, **kwargs):
+    """Draw an OccupancyGrid in world coordinates (obstacles dark), optionally under a scalar field.
+
+    `field` is an array shaped like the grid (rows = y); infinite values are left blank.
+    """
+    occ = grid.to_array().astype(float)
+    extent = grid.extent
+    if field is not None:
+        f = np.where(np.isfinite(field), field, np.nan)
+        im = ax.imshow(f, origin="lower", extent=extent, cmap=cmap, interpolation="nearest", **kwargs)
+        if colorbar:
+            ax.figure.colorbar(im, ax=ax, label=colorbar, shrink=0.8)
+    masked = np.ma.masked_where(occ == 0, occ)
+    ax.imshow(masked, origin="lower", extent=extent, cmap=mpl.colors.ListedColormap([OBSTACLE]),
+              interpolation="nearest", alpha=obstacle_alpha, vmin=0, vmax=1)
+    ax.set_xlim(extent[0], extent[1])
+    ax.set_ylim(extent[2], extent[3])
+    ax.set_aspect("equal")
+    ax.grid(False)
+    return ax
