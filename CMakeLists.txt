@@ -33,6 +33,7 @@ add_library(motion_planning
     cpp/src/kinematics.cpp
     cpp/src/pose_control.cpp
     cpp/src/grid.cpp
+    cpp/src/potential.cpp
 )
 add_library(motion_planning::motion_planning ALIAS motion_planning)
 target_include_directories(motion_planning PUBLIC

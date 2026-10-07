@@ -8,6 +8,7 @@
 #include "motion_planning/grid.hpp"
 #include "motion_planning/kinematics.hpp"
 #include "motion_planning/pose_control.hpp"
+#include "motion_planning/potential.hpp"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -249,6 +250,36 @@ void bind_grid(py::module_& m) {
           "Eq. (2.2).");
 }
 
+void bind_potential(py::module_& m) {
+    py::class_<PotentialParams>(m, "PotentialParams")
+        .def(py::init([](double zeta, double d_star, double eta, double q_star) {
+                 return PotentialParams{zeta, d_star, eta, q_star};
+             }),
+             "zeta"_a = 1.0, "d_star"_a = 2.0, "eta"_a = 1.0, "q_star"_a = 1.0)
+        .def_readwrite("zeta", &PotentialParams::zeta)
+        .def_readwrite("d_star", &PotentialParams::d_star)
+        .def_readwrite("eta", &PotentialParams::eta)
+        .def_readwrite("q_star", &PotentialParams::q_star);
+    m.def("attractive_potential", &attractive_potential, "p"_a, "goal"_a, "params"_a, "Eq. (3.1).");
+    m.def("attractive_gradient", &attractive_gradient, "p"_a, "goal"_a, "params"_a, "Eq. (3.2).");
+    m.def("repulsive_potential",
+          py::vectorize([](double c, PotentialParams k) { return repulsive_potential(c, k); }), "clearance"_a,
+          "params"_a, "Eq. (3.3).");
+    m.def("attractive_field", &attractive_field, "grid"_a, "goal"_a, "params"_a);
+    m.def("repulsive_field", &repulsive_field, "grid"_a, "params"_a, "Eq. (3.3) on the distance transform.");
+    m.def("total_field", &total_field, "grid"_a, "goal"_a, "params"_a, "Eq. (3.4).");
+    m.def("wavefront", &wavefront, "grid"_a, "goal"_a, "connectivity"_a = Connectivity::Four, "Eq. (3.6).");
+
+    py::class_<DescentResult>(m, "DescentResult")
+        .def_property_readonly(
+            "path", [](const DescentResult& r) { return cells_to_array(r.path); },
+            "(N, 2) array of visited cells (x, y)")
+        .def_readonly("reached_goal", &DescentResult::reached_goal)
+        .def_readonly("local_minimum", &DescentResult::local_minimum);
+    m.def("descend", &descend, "field"_a, "start"_a, "goal"_a, "connectivity"_a = Connectivity::Eight,
+          "max_steps"_a = 100000, "Discrete steepest descent, section 3.3.");
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -256,4 +287,5 @@ PYBIND11_MODULE(_core, m) {
     bind_kinematics(m);
     bind_pose_control(m);
     bind_grid(m);
+    bind_potential(m);
 }
