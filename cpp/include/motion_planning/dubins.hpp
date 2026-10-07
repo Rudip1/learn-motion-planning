@@ -17,7 +17,7 @@
 namespace motion_planning {
 
 /// The six candidate words of Dubins' theorem: three segments, each a Left turn, a Right turn or a Straight
-/// line (section 6.2).
+/// line (section 6.3).
 enum class DubinsWord { LSL, RSR, LSR, RSL, RLR, LRL };
 
 /// "LSL", "RSR", ...

@@ -15,6 +15,7 @@
 #include "motion_planning/pose_control.hpp"
 #include "motion_planning/potential.hpp"
 #include "motion_planning/sampling.hpp"
+#include "motion_planning/tracking.hpp"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -507,6 +508,54 @@ void bind_dubins(py::module_& m) {
           "options"_a = DubinsPlannerOptions{}, "Section 6.4.");
 }
 
+void bind_tracking(py::module_& m) {
+    m.def("shortcut_greedy", &shortcut_greedy, "path"_a, "motion_valid"_a, "Section 7.1.");
+    m.def("shortcut_random", &shortcut_random, "path"_a, "motion_valid"_a, "iterations"_a = 200, "seed"_a = 1,
+          "Section 7.1.");
+    m.def("turning_angles", &turning_angles, "path"_a);
+    py::class_<PathProjection>(m, "PathProjection")
+        .def_readonly("s", &PathProjection::s)
+        .def_readonly("point", &PathProjection::point)
+        .def_readonly("heading", &PathProjection::heading)
+        .def_readonly("lateral", &PathProjection::lateral);
+    py::class_<Path2D>(m, "Path2D")
+        .def(py::init<const Points2D&>(), "points"_a)
+        .def("length", &Path2D::length)
+        .def_property_readonly("points", &Path2D::points)
+        .def("point_at", &Path2D::point_at, "s"_a)
+        .def("heading_at", &Path2D::heading_at, "s"_a)
+        .def("project", &Path2D::project, "p"_a, "Eq. (7.1).");
+    m.def("pure_pursuit_curvature", &pure_pursuit_curvature, "q"_a, "target"_a, "Eq. (7.3).");
+    m.def("stanley_steering", &stanley_steering, "heading_error"_a, "lateral_error"_a, "speed"_a, "gain"_a,
+          "softening"_a, "Eq. (7.5).");
+    py::enum_<TrackingController>(m, "TrackingController")
+        .value("PurePursuit", TrackingController::PurePursuit)
+        .value("Stanley", TrackingController::Stanley);
+    py::class_<TrackingOptions>(m, "TrackingOptions")
+        .def(py::init([](TrackingController c, double speed, double lookahead, double lookahead_gain,
+                         double k, double ks, double rate, double dt, int max_steps) {
+                 return TrackingOptions{c, speed, lookahead, lookahead_gain, k, ks, rate, dt, max_steps};
+             }),
+             "controller"_a = TrackingController::PurePursuit, "speed"_a = 1.0, "lookahead"_a = 1.0,
+             "lookahead_gain"_a = 0.0, "stanley_gain"_a = 1.0, "softening"_a = 0.1,
+             "steering_rate"_a = INFINITY, "dt"_a = 0.02, "max_steps"_a = 20000)
+        .def_readwrite("controller", &TrackingOptions::controller)
+        .def_readwrite("speed", &TrackingOptions::speed)
+        .def_readwrite("lookahead", &TrackingOptions::lookahead)
+        .def_readwrite("lookahead_gain", &TrackingOptions::lookahead_gain)
+        .def_readwrite("stanley_gain", &TrackingOptions::stanley_gain)
+        .def_readwrite("softening", &TrackingOptions::softening)
+        .def_readwrite("steering_rate", &TrackingOptions::steering_rate)
+        .def_readwrite("dt", &TrackingOptions::dt)
+        .def_readwrite("max_steps", &TrackingOptions::max_steps);
+    py::class_<TrackingResult>(m, "TrackingResult")
+        .def_readonly("states", &TrackingResult::states)
+        .def_readonly("cross_track", &TrackingResult::cross_track)
+        .def_readonly("steering", &TrackingResult::steering)
+        .def_readonly("reached_end", &TrackingResult::reached_end);
+    m.def("track_path", &track_path, "vehicle"_a, "path"_a, "start"_a, "options"_a = TrackingOptions{});
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -518,4 +567,5 @@ PYBIND11_MODULE(_core, m) {
     bind_graph_search(m);
     bind_sampling(m);
     bind_dubins(m);
+    bind_tracking(m);
 }
