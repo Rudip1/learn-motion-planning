@@ -42,6 +42,8 @@ def main() -> int:
         print(f"ok   {path.name} ({time.time() - t0:.1f} s)")
         if not args.no_write:
             nb.metadata.pop("widgets", None)
+            for cell in nb.cells:  # timestamps would make every re-run a diff
+                cell.metadata.pop("execution", None)
             nbformat.write(nb, path)
     return 1 if failed else 0
 
