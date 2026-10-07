@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "motion_planning/angles.hpp"
+#include "motion_planning/dubins.hpp"
 #include "motion_planning/graph_search.hpp"
 #include "motion_planning/grid.hpp"
 #include "motion_planning/kinematics.hpp"
@@ -437,6 +438,75 @@ void bind_sampling(py::module_& m) {
         "path"_a);
 }
 
+void bind_dubins(py::module_& m) {
+    py::enum_<DubinsWord>(m, "DubinsWord")
+        .value("LSL", DubinsWord::LSL)
+        .value("RSR", DubinsWord::RSR)
+        .value("LSR", DubinsWord::LSR)
+        .value("RSL", DubinsWord::RSL)
+        .value("RLR", DubinsWord::RLR)
+        .value("LRL", DubinsWord::LRL);
+    py::class_<DubinsPath>(m, "DubinsPath")
+        .def_readonly("start", &DubinsPath::start)
+        .def_readonly("word", &DubinsPath::word)
+        .def_readonly("lengths", &DubinsPath::lengths)
+        .def_readonly("radius", &DubinsPath::radius)
+        .def("length", &DubinsPath::length)
+        .def("at", &DubinsPath::at, "s"_a)
+        .def("sample", &DubinsPath::sample, "step"_a)
+        .def("truncated", &DubinsPath::truncated, "s"_a)
+        .def("__repr__", [](const DubinsPath& p) {
+            return "DubinsPath(" + to_string(p.word) + ", length=" + std::to_string(p.length()) + ")";
+        });
+    m.def("dubins_path", &dubins_path, "q0"_a, "q1"_a, "radius"_a, "word"_a,
+          "Eqs. (6.3)-(6.8); None if infeasible.");
+    m.def("all_dubins_paths", &all_dubins_paths, "q0"_a, "q1"_a, "radius"_a);
+    m.def("shortest_dubins_path", &shortest_dubins_path, "q0"_a, "q1"_a, "radius"_a);
+    m.def("dubins_distance", &dubins_distance, "q0"_a, "q1"_a, "radius"_a);
+    m.def("dubins_path_valid", &dubins_path_valid, "path"_a, "problem"_a, "step"_a, "Eq. (6.9).");
+
+    py::class_<DubinsPlannerOptions>(m, "DubinsPlannerOptions")
+        .def(py::init([](int iters, double radius, double step, double bias, double gamma, double cstep,
+                         bool star, std::uint32_t seed) {
+                 return DubinsPlannerOptions{iters, radius, step, bias, gamma, cstep, star, seed};
+             }),
+             "max_iterations"_a = 3000, "radius"_a = 1.0, "step"_a = 3.0, "goal_bias"_a = 0.05,
+             "gamma"_a = 0.0, "collision_step"_a = 0.05, "star"_a = true, "seed"_a = 1)
+        .def_readwrite("max_iterations", &DubinsPlannerOptions::max_iterations)
+        .def_readwrite("radius", &DubinsPlannerOptions::radius)
+        .def_readwrite("step", &DubinsPlannerOptions::step)
+        .def_readwrite("goal_bias", &DubinsPlannerOptions::goal_bias)
+        .def_readwrite("gamma", &DubinsPlannerOptions::gamma)
+        .def_readwrite("collision_step", &DubinsPlannerOptions::collision_step)
+        .def_readwrite("star", &DubinsPlannerOptions::star)
+        .def_readwrite("seed", &DubinsPlannerOptions::seed);
+    py::class_<DubinsTreeResult>(m, "DubinsTreeResult")
+        .def_readonly("nodes", &DubinsTreeResult::nodes)
+        .def_readonly("parent", &DubinsTreeResult::parent)
+        .def_readonly("cost", &DubinsTreeResult::cost)
+        .def_readonly("found", &DubinsTreeResult::found)
+        .def_readonly("segments", &DubinsTreeResult::segments)
+        .def_readonly("path_cost", &DubinsTreeResult::path_cost)
+        .def_readonly("best_cost_history", &DubinsTreeResult::best_cost_history)
+        .def(
+            "sample_path",
+            [](const DubinsTreeResult& t, double step) {
+                std::vector<Pose> poses;
+                for (const DubinsPath& s : t.segments) {
+                    const Trajectory tr = s.sample(step);
+                    for (Eigen::Index k = poses.empty() ? 0 : 1; k < tr.rows(); ++k)
+                        poses.push_back(tr.row(k));
+                }
+                Trajectory out(static_cast<Eigen::Index>(poses.size()), 3);
+                for (std::size_t i = 0; i < poses.size(); ++i)
+                    out.row(static_cast<Eigen::Index>(i)) = poses[i];
+                return out;
+            },
+            "step"_a = 0.05, "The whole path as poses every `step` metres.");
+    m.def("dubins_rrt_star", &dubins_rrt_star, "problem"_a, "start"_a, "goal"_a,
+          "options"_a = DubinsPlannerOptions{}, "Section 6.4.");
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -447,4 +517,5 @@ PYBIND11_MODULE(_core, m) {
     bind_potential(m);
     bind_graph_search(m);
     bind_sampling(m);
+    bind_dubins(m);
 }

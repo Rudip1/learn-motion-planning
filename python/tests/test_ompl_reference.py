@@ -66,3 +66,17 @@ def test_rrt_star_matches_ompl():
     assert ours <= 1.05 * OPTIMAL
     assert theirs <= 1.05 * OPTIMAL
     assert abs(ours - theirs) <= 0.05 * OPTIMAL
+
+
+def test_dubins_distance_matches_ompl():
+    """Chapter 6: our shortest Dubins path length against OMPL's DubinsStateSpace."""
+    rng = np.random.default_rng(0)
+    for radius in (0.5, 1.0, 2.0):
+        space = ob.DubinsStateSpace(radius)
+        a, b = space.allocState(), space.allocState()
+        for _ in range(300):
+            q0 = np.r_[rng.uniform(-5, 5, 2), rng.uniform(-np.pi, np.pi)]
+            q1 = np.r_[rng.uniform(-5, 5, 2), rng.uniform(-np.pi, np.pi)]
+            a.setX(q0[0]); a.setY(q0[1]); a.setYaw(q0[2])  # noqa: E702
+            b.setX(q1[0]); b.setY(q1[1]); b.setYaw(q1[2])  # noqa: E702
+            assert np.isclose(mp.dubins_distance(q0, q1, radius), space.distance(a, b), rtol=1e-6, atol=1e-6)
