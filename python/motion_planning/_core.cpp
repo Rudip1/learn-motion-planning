@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "motion_planning/angles.hpp"
+#include "motion_planning/behavior_tree.hpp"
 #include "motion_planning/dubins.hpp"
 #include "motion_planning/dwa.hpp"
 #include "motion_planning/graph_search.hpp"
@@ -614,6 +615,86 @@ void bind_dwa(py::module_& m) {
           "Section 8.4.");
 }
 
+void bind_behavior_tree(py::module_& parent) {
+    namespace bt = motion_planning::bt;
+    py::module_ m = parent.def_submodule("bt", "Behaviour trees (chapter 9).");
+    py::enum_<bt::Status>(m, "Status")
+        .value("Success", bt::Status::Success)
+        .value("Failure", bt::Status::Failure)
+        .value("Running", bt::Status::Running);
+    py::class_<bt::Blackboard>(m, "Blackboard")
+        .def(py::init<>())
+        .def("set", &bt::Blackboard::set, "key"_a, "value"_a)
+        .def("get", &bt::Blackboard::get, "key"_a)
+        .def("has", &bt::Blackboard::has, "key"_a)
+        .def("number", &bt::Blackboard::number, "key"_a)
+        .def("__getitem__", &bt::Blackboard::get)
+        .def("__setitem__", &bt::Blackboard::set)
+        .def("__contains__", &bt::Blackboard::has)
+        .def("to_dict", &bt::Blackboard::values);
+    py::class_<bt::Node, std::shared_ptr<bt::Node>>(m, "Node")
+        .def("tick", &bt::Node::tick, "blackboard"_a)
+        .def("halt", &bt::Node::halt)
+        .def_property_readonly("name", &bt::Node::name)
+        .def_property_readonly("kind", &bt::Node::kind)
+        .def_property_readonly("children", &bt::Node::children)
+        .def_property_readonly("ticked", &bt::Node::ticked)
+        .def_property_readonly("last_status", &bt::Node::last_status)
+        .def_property_readonly("tick_count", &bt::Node::tick_count);
+    py::class_<bt::Sequence, bt::Node, std::shared_ptr<bt::Sequence>>(m, "Sequence")
+        .def(py::init<std::string, std::vector<bt::NodePtr>, bool>(), "name"_a, "children"_a,
+             "memory"_a = false, "Eq. (9.1).");
+    py::class_<bt::Fallback, bt::Node, std::shared_ptr<bt::Fallback>>(m, "Fallback")
+        .def(py::init<std::string, std::vector<bt::NodePtr>, bool>(), "name"_a, "children"_a,
+             "memory"_a = false, "Eq. (9.2).");
+    py::class_<bt::Parallel, bt::Node, std::shared_ptr<bt::Parallel>>(m, "Parallel")
+        .def(py::init<std::string, std::vector<bt::NodePtr>, int>(), "name"_a, "children"_a,
+             "success_threshold"_a, "Eq. (9.3).");
+    py::class_<bt::Inverter, bt::Node, std::shared_ptr<bt::Inverter>>(m, "Inverter")
+        .def(py::init<std::string, bt::NodePtr>(), "name"_a, "child"_a);
+    py::class_<bt::Retry, bt::Node, std::shared_ptr<bt::Retry>>(m, "Retry")
+        .def(py::init<std::string, bt::NodePtr, int>(), "name"_a, "child"_a, "attempts"_a);
+    py::class_<bt::Repeat, bt::Node, std::shared_ptr<bt::Repeat>>(m, "Repeat")
+        .def(py::init<std::string, bt::NodePtr, int>(), "name"_a, "child"_a, "times"_a);
+    py::class_<bt::Timeout, bt::Node, std::shared_ptr<bt::Timeout>>(m, "Timeout")
+        .def(py::init<std::string, bt::NodePtr, int>(), "name"_a, "child"_a, "max_ticks"_a);
+    py::class_<bt::Force, bt::Node, std::shared_ptr<bt::Force>>(m, "Force")
+        .def(py::init<std::string, bt::NodePtr, bt::Status>(), "name"_a, "child"_a, "status"_a);
+    // Python callbacks must see the tree's blackboard itself, not a copy: pass it by reference explicitly.
+    py::class_<bt::Condition, bt::Node, std::shared_ptr<bt::Condition>>(m, "Condition")
+        .def(py::init([](std::string name, py::function f) {
+                 return std::make_shared<bt::Condition>(std::move(name), [f](bt::Blackboard& bb) {
+                     return f(py::cast(&bb, py::return_value_policy::reference)).cast<bool>();
+                 });
+             }),
+             "name"_a, "predicate"_a);
+    py::class_<bt::Action, bt::Node, std::shared_ptr<bt::Action>>(m, "Action")
+        .def(py::init([](std::string name, py::function f, py::object on_halt) {
+                 std::function<void()> h;
+                 if (!on_halt.is_none()) h = [on_halt]() { on_halt(); };
+                 return std::make_shared<bt::Action>(
+                     std::move(name),
+                     [f](bt::Blackboard& bb) {
+                         return f(py::cast(&bb, py::return_value_policy::reference)).cast<bt::Status>();
+                     },
+                     h);
+             }),
+             "name"_a, "run"_a, "on_halt"_a = py::none());
+    m.def("compare", &bt::compare, "name"_a, "key"_a, "op"_a, "value"_a);
+    m.def("set_value", &bt::set_value, "name"_a, "key"_a, "value"_a);
+    m.def("wait", &bt::wait, "name"_a, "ticks"_a);
+    py::class_<bt::Tree>(m, "Tree")
+        .def(py::init<bt::NodePtr>(), "root"_a)
+        .def("tick", &bt::Tree::tick)
+        .def("run", &bt::Tree::run, "max_ticks"_a)
+        .def("halt", &bt::Tree::halt)
+        .def_property_readonly("blackboard", &bt::Tree::blackboard,
+                               py::return_value_policy::reference_internal)
+        .def_property_readonly("root", &bt::Tree::root)
+        .def_property_readonly("ticks", &bt::Tree::ticks)
+        .def("__str__", &bt::Tree::to_string);
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -627,4 +708,5 @@ PYBIND11_MODULE(_core, m) {
     bind_dubins(m);
     bind_tracking(m);
     bind_dwa(m);
+    bind_behavior_tree(m);
 }
