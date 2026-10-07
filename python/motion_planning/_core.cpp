@@ -1,10 +1,14 @@
 // Python bindings for the motion_planning C++ library. One `bind_*` function per chapter.
 #include <pybind11/eigen.h>
+#include <pybind11/functional.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
+#include <optional>
+
 #include "motion_planning/angles.hpp"
+#include "motion_planning/graph_search.hpp"
 #include "motion_planning/grid.hpp"
 #include "motion_planning/kinematics.hpp"
 #include "motion_planning/pose_control.hpp"
@@ -280,6 +284,85 @@ void bind_potential(py::module_& m) {
           "max_steps"_a = 100000, "Discrete steepest descent, section 3.3.");
 }
 
+void bind_graph_search(py::module_& m) {
+    py::enum_<SearchAlgorithm>(m, "SearchAlgorithm")
+        .value("BreadthFirst", SearchAlgorithm::BreadthFirst)
+        .value("Dijkstra", SearchAlgorithm::Dijkstra)
+        .value("AStar", SearchAlgorithm::AStar)
+        .value("WeightedAStar", SearchAlgorithm::WeightedAStar)
+        .value("GreedyBestFirst", SearchAlgorithm::GreedyBestFirst);
+    py::enum_<Heuristic>(m, "Heuristic")
+        .value("Zero", Heuristic::Zero)
+        .value("Euclidean", Heuristic::Euclidean)
+        .value("Manhattan", Heuristic::Manhattan)
+        .value("Octile", Heuristic::Octile)
+        .value("Chebyshev", Heuristic::Chebyshev);
+
+    py::class_<SearchResult>(m, "SearchResult")
+        .def_readonly("found", &SearchResult::found)
+        .def_readonly("path", &SearchResult::path)
+        .def_readonly("cost", &SearchResult::cost)
+        .def_readonly("expanded", &SearchResult::expanded);
+    m.def(
+        "best_first_search",
+        [](int n, int start, int goal,
+           const std::function<std::vector<std::pair<int, double>>(int)>& neighbours,
+           const std::function<double(int)>& heuristic, SearchAlgorithm algorithm, double weight) {
+            return best_first_search(
+                n, start, goal,
+                [&](int u, std::vector<std::pair<int, double>>& out) {
+                    for (const auto& e : neighbours(u)) out.push_back(e);
+                },
+                heuristic, algorithm, weight);
+        },
+        "num_nodes"_a, "start"_a, "goal"_a, "neighbours"_a, "heuristic"_a, "algorithm"_a, "weight"_a = 1.0,
+        "Generic search; `neighbours(u)` returns a list of (v, cost). Section 4.3.");
+    m.def("grid_heuristic", &grid_heuristic, "kind"_a, "a"_a, "b"_a, "resolution"_a = 1.0);
+
+    py::class_<GridSearchOptions>(m, "GridSearchOptions")
+        .def(py::init([](SearchAlgorithm a, Connectivity c, Heuristic h, double w, bool cut) {
+                 return GridSearchOptions{a, c, h, w, cut};
+             }),
+             "algorithm"_a = SearchAlgorithm::AStar, "connectivity"_a = Connectivity::Eight,
+             "heuristic"_a = Heuristic::Octile, "weight"_a = 1.0, "allow_corner_cutting"_a = false)
+        .def_readwrite("algorithm", &GridSearchOptions::algorithm)
+        .def_readwrite("connectivity", &GridSearchOptions::connectivity)
+        .def_readwrite("heuristic", &GridSearchOptions::heuristic)
+        .def_readwrite("weight", &GridSearchOptions::weight)
+        .def_readwrite("allow_corner_cutting", &GridSearchOptions::allow_corner_cutting);
+    py::class_<GridSearchResult>(m, "GridSearchResult")
+        .def_readonly("found", &GridSearchResult::found)
+        .def_readonly("cost", &GridSearchResult::cost)
+        .def_property_readonly("path", [](const GridSearchResult& r) { return cells_to_array(r.path); })
+        .def_property_readonly("expanded",
+                               [](const GridSearchResult& r) { return cells_to_array(r.expanded); });
+    m.def(
+        "grid_search",
+        [](const OccupancyGrid& g, const Cell& s, const Cell& t, const GridSearchOptions& o,
+           std::optional<FieldArray> cost) { return grid_search(g, s, t, o, cost ? *cost : FieldArray()); },
+        "grid"_a, "start"_a, "goal"_a, "options"_a = GridSearchOptions{}, "cell_cost"_a = py::none(),
+        "Search an occupancy grid; optional per-cell cost factor. Eq. (4.9).");
+
+    py::class_<Graph>(m, "Graph", "Explicit graph with points in the plane.")
+        .def(py::init<>())
+        .def("add_node", &Graph::add_node, "p"_a)
+        .def("add_edge", &Graph::add_edge, "a"_a, "b"_a, "cost"_a = -1.0, "bidirectional"_a = true)
+        .def("__len__", &Graph::size)
+        .def_property_readonly("num_edges", &Graph::num_edges)
+        .def("point", &Graph::point, "i"_a)
+        .def("edges", &Graph::edges, "i"_a)
+        .def_property_readonly("points", [](const Graph& g) {
+            Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor> p(g.size(), 2);
+            for (int i = 0; i < g.size(); ++i) p.row(i) = g.point(i).transpose();
+            return p;
+        });
+    m.def("graph_search", &graph_search, "graph"_a, "start"_a, "goal"_a,
+          "algorithm"_a = SearchAlgorithm::AStar, "weight"_a = 1.0);
+    m.def("point_in_polygon", &point_in_polygon, "p"_a, "polygon"_a);
+    m.def("segment_clear_of_polygons", &segment_clear_of_polygons, "a"_a, "b"_a, "polygons"_a);
+    m.def("visibility_graph", &visibility_graph, "polygons"_a, "points"_a, "Section 4.6.");
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -288,4 +371,5 @@ PYBIND11_MODULE(_core, m) {
     bind_pose_control(m);
     bind_grid(m);
     bind_potential(m);
+    bind_graph_search(m);
 }

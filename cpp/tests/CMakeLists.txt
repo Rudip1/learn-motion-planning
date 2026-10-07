@@ -11,6 +11,7 @@ add_executable(motion_planning_tests
     test_pose_control.cpp
     test_grid.cpp
     test_potential.cpp
+    test_graph_search.cpp
 )
 target_link_libraries(motion_planning_tests PRIVATE motion_planning Catch2::Catch2WithMain)
 catch_discover_tests(motion_planning_tests)
