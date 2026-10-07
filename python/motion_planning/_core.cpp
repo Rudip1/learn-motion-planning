@@ -9,6 +9,7 @@
 
 #include "motion_planning/angles.hpp"
 #include "motion_planning/dubins.hpp"
+#include "motion_planning/dwa.hpp"
 #include "motion_planning/graph_search.hpp"
 #include "motion_planning/grid.hpp"
 #include "motion_planning/kinematics.hpp"
@@ -556,6 +557,63 @@ void bind_tracking(py::module_& m) {
     m.def("track_path", &track_path, "vehicle"_a, "path"_a, "start"_a, "options"_a = TrackingOptions{});
 }
 
+void bind_dwa(py::module_& m) {
+    py::class_<DwaConfig>(m, "DwaConfig",
+                          "Robot limits and DWA objective weights; all fields keyword-settable.")
+        .def(py::init([](py::kwargs kw) {
+            DwaConfig c;
+            py::object o = py::cast(&c, py::return_value_policy::reference);
+            for (auto item : kw) py::setattr(o, item.first, item.second);
+            return c;
+        }))
+        .def_readwrite("max_speed", &DwaConfig::max_speed)
+        .def_readwrite("min_speed", &DwaConfig::min_speed)
+        .def_readwrite("max_yaw_rate", &DwaConfig::max_yaw_rate)
+        .def_readwrite("max_accel", &DwaConfig::max_accel)
+        .def_readwrite("max_yaw_accel", &DwaConfig::max_yaw_accel)
+        .def_readwrite("control_period", &DwaConfig::control_period)
+        .def_readwrite("horizon", &DwaConfig::horizon)
+        .def_readwrite("sim_step", &DwaConfig::sim_step)
+        .def_readwrite("v_samples", &DwaConfig::v_samples)
+        .def_readwrite("w_samples", &DwaConfig::w_samples)
+        .def_readwrite("robot_radius", &DwaConfig::robot_radius)
+        .def_readwrite("heading_weight", &DwaConfig::heading_weight)
+        .def_readwrite("distance_weight", &DwaConfig::distance_weight)
+        .def_readwrite("velocity_weight", &DwaConfig::velocity_weight)
+        .def_readwrite("distance_cap", &DwaConfig::distance_cap);
+    py::class_<DynamicWindow>(m, "DynamicWindow")
+        .def_readonly("v_min", &DynamicWindow::v_min)
+        .def_readonly("v_max", &DynamicWindow::v_max)
+        .def_readonly("w_min", &DynamicWindow::w_min)
+        .def_readonly("w_max", &DynamicWindow::w_max);
+    m.def("dynamic_window", &dynamic_window, "current"_a, "config"_a, "Eqs. (8.1)-(8.2).");
+    m.def("rollout", &rollout, "q"_a, "v"_a, "w"_a, "config"_a);
+    py::class_<DwaCandidate>(m, "DwaCandidate")
+        .def_readonly("v", &DwaCandidate::v)
+        .def_readonly("w", &DwaCandidate::w)
+        .def_readonly("heading", &DwaCandidate::heading)
+        .def_readonly("distance", &DwaCandidate::distance)
+        .def_readonly("velocity", &DwaCandidate::velocity)
+        .def_readonly("total", &DwaCandidate::total)
+        .def_readonly("free_distance", &DwaCandidate::free_distance)
+        .def_readonly("admissible", &DwaCandidate::admissible);
+    py::class_<DwaDecision>(m, "DwaDecision")
+        .def_readonly("found", &DwaDecision::found)
+        .def_readonly("command", &DwaDecision::command)
+        .def_readonly("candidates", &DwaDecision::candidates)
+        .def_readonly("best_rollout", &DwaDecision::best_rollout);
+    m.def("dwa_step", &dwa_step, "grid"_a, "distance"_a, "q"_a, "current"_a, "goal"_a, "config"_a,
+          "Section 8.3.");
+    py::class_<DwaRun>(m, "DwaRun")
+        .def_readonly("states", &DwaRun::states)
+        .def_readonly("commands", &DwaRun::commands)
+        .def_readonly("reached_goal", &DwaRun::reached_goal)
+        .def_readonly("stuck", &DwaRun::stuck);
+    m.def("run_dwa", &run_dwa, "grid"_a, "start"_a, "goal"_a, "config"_a, "global_path"_a = Points2D(),
+          "carrot_distance"_a = 1.0, "goal_tolerance"_a = 0.15, "max_time"_a = 120.0, "stuck_time"_a = 10.0,
+          "Section 8.4.");
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -568,4 +626,5 @@ PYBIND11_MODULE(_core, m) {
     bind_sampling(m);
     bind_dubins(m);
     bind_tracking(m);
+    bind_dwa(m);
 }
