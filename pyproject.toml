@@ -1,0 +1,35 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "motion_planning"
+version = "0.1.0"
+description = "Motion planning from robot models to decisions: theory, C++ implementations and notebooks."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "matplotlib>=3.7"]
+classifiers = [
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+notebooks = ["nbclient>=0.10", "nbformat>=5.9", "ipykernel>=6.29"]
+
+[project.urls]
+Source = "https://github.com/Rudip1/learn-motion-planning"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["python/motion_planning"]
+cmake.build-type = "Release"
+sdist.exclude = ["build", "2_notebooks", "1_theory/figures"]
+
+[tool.scikit-build.cmake.define]
+MP_BUILD_PYTHON = "ON"
+MP_BUILD_TESTS = "OFF"
+MP_BUILD_EXAMPLES = "OFF"
