@@ -13,6 +13,7 @@
 #include "motion_planning/kinematics.hpp"
 #include "motion_planning/pose_control.hpp"
 #include "motion_planning/potential.hpp"
+#include "motion_planning/sampling.hpp"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -363,6 +364,79 @@ void bind_graph_search(py::module_& m) {
     m.def("visibility_graph", &visibility_graph, "polygons"_a, "points"_a, "Section 4.6.");
 }
 
+using PointArray = Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor>;
+
+PointArray points_to_array(const std::vector<Eigen::Vector2d>& pts) {
+    PointArray a(static_cast<Eigen::Index>(pts.size()), 2);
+    for (std::size_t i = 0; i < pts.size(); ++i) a.row(static_cast<Eigen::Index>(i)) = pts[i].transpose();
+    return a;
+}
+
+void bind_sampling(py::module_& m) {
+    py::class_<PlanningProblem2D>(m, "PlanningProblem2D",
+                                  "Point robot in a rectangle; validity checks may be Python callables.")
+        .def(py::init<>())
+        .def_readwrite("lower", &PlanningProblem2D::lower)
+        .def_readwrite("upper", &PlanningProblem2D::upper)
+        .def_readwrite("state_valid", &PlanningProblem2D::state_valid)
+        .def_readwrite("motion_valid", &PlanningProblem2D::motion_valid)
+        .def_readwrite("start", &PlanningProblem2D::start)
+        .def_readwrite("goal", &PlanningProblem2D::goal)
+        .def_readwrite("goal_radius", &PlanningProblem2D::goal_radius);
+    m.def("problem_from_grid", &problem_from_grid, "grid"_a, "start"_a, "goal"_a);
+    m.def("problem_from_polygons", &problem_from_polygons, "polygons"_a, "lower"_a, "upper"_a, "start"_a,
+          "goal"_a);
+    m.def("rewiring_radius", &rewiring_radius, "n"_a, "gamma"_a, "Eq. (5.3).");
+    m.def("optimal_gamma", &optimal_gamma, "free_area"_a, "Eq. (5.4).");
+
+    py::class_<PrmOptions>(m, "PrmOptions")
+        .def(py::init([](int n, double radius, double gamma, std::uint32_t seed) {
+                 return PrmOptions{n, radius, gamma, seed};
+             }),
+             "num_samples"_a = 500, "connection_radius"_a = -1.0, "gamma"_a = 0.0, "seed"_a = 1)
+        .def_readwrite("num_samples", &PrmOptions::num_samples)
+        .def_readwrite("connection_radius", &PrmOptions::connection_radius)
+        .def_readwrite("gamma", &PrmOptions::gamma)
+        .def_readwrite("seed", &PrmOptions::seed);
+    py::class_<PrmResult>(m, "PrmResult")
+        .def_readonly("roadmap", &PrmResult::roadmap)
+        .def_readonly("query", &PrmResult::query)
+        .def_readonly("collision_checks", &PrmResult::collision_checks);
+    m.def("prm", &prm, "problem"_a, "options"_a = PrmOptions{}, "Section 5.2.");
+
+    py::class_<RrtOptions>(m, "RrtOptions")
+        .def(py::init([](int iters, double step, double bias, bool stop, double gamma, std::uint32_t seed) {
+                 return RrtOptions{iters, step, bias, stop, gamma, seed};
+             }),
+             "max_iterations"_a = 5000, "step"_a = 0.5, "goal_bias"_a = 0.05,
+             "stop_at_first_solution"_a = true, "gamma"_a = 0.0, "seed"_a = 1)
+        .def_readwrite("max_iterations", &RrtOptions::max_iterations)
+        .def_readwrite("step", &RrtOptions::step)
+        .def_readwrite("goal_bias", &RrtOptions::goal_bias)
+        .def_readwrite("stop_at_first_solution", &RrtOptions::stop_at_first_solution)
+        .def_readwrite("gamma", &RrtOptions::gamma)
+        .def_readwrite("seed", &RrtOptions::seed);
+    py::class_<TreeResult>(m, "TreeResult")
+        .def_property_readonly("nodes", [](const TreeResult& t) { return points_to_array(t.nodes); })
+        .def_readonly("parent", &TreeResult::parent)
+        .def_readonly("cost", &TreeResult::cost)
+        .def_readonly("found", &TreeResult::found)
+        .def_property_readonly("path", [](const TreeResult& t) { return points_to_array(t.path); })
+        .def_readonly("path_cost", &TreeResult::path_cost)
+        .def_readonly("first_solution_iteration", &TreeResult::first_solution_iteration)
+        .def_readonly("best_cost_history", &TreeResult::best_cost_history);
+    m.def("rrt", &rrt, "problem"_a, "options"_a = RrtOptions{}, "Section 5.3.");
+    m.def("rrt_star", &rrt_star, "problem"_a, "options"_a = RrtOptions{}, "Section 5.4.");
+    m.def(
+        "path_length",
+        [](const PointArray& p) {
+            double L = 0.0;
+            for (Eigen::Index i = 1; i < p.rows(); ++i) L += (p.row(i) - p.row(i - 1)).norm();
+            return L;
+        },
+        "path"_a);
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -372,4 +446,5 @@ PYBIND11_MODULE(_core, m) {
     bind_grid(m);
     bind_potential(m);
     bind_graph_search(m);
+    bind_sampling(m);
 }
