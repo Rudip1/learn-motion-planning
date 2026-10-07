@@ -1,0 +1,31 @@
+# build output
+build/
+_skbuild/
+dist/
+*.egg-info/
+*.so
+*.pyd
+*.o
+*.a
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# editors and operating systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+desktop.ini
+*.asv
+
+# archives of code
+*.zip
+*.tar.gz
+
+# downloaded data (see tools/get_data.sh)
+data/downloaded/

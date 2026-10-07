@@ -1,0 +1,2 @@
+add_executable(01_vehicle_kinematics 01_vehicle_kinematics.cpp)
+target_link_libraries(01_vehicle_kinematics PRIVATE motion_planning)
