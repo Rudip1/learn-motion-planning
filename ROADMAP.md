@@ -6,10 +6,10 @@ Chapters follow `docs/CHAPTER_PLAN.md`; each finished chapter has its theory tex
 - [x] 02 Configuration space and occupancy grids
 - [x] 03 Potential fields
 - [x] 04 Graph search
-- [ ] 05 Sampling-based planning
-- [ ] 06 Non-holonomic paths
-- [ ] 07 Path smoothing and tracking
-- [ ] 08 Local planning
-- [ ] 09 Behaviour trees
+- [x] 05 Sampling-based planning
+- [x] 06 Non-holonomic paths
+- [x] 07 Path smoothing and tracking
+- [x] 08 Local planning
+- [x] 09 Behaviour trees
 - [ ] 10 Task planning
 - [ ] 11 Reinforcement learning basics

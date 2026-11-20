@@ -115,3 +115,74 @@ def show_grid(ax, grid, field=None, cmap="viridis", obstacle_alpha=1.0, colorbar
     ax.set_aspect("equal")
     ax.grid(False)
     return ax
+
+
+STATUS_COLORS = {"Success": "#008300", "Failure": "#e34948", "Running": "#eda100"}
+_KIND_LABEL = {
+    "Sequence": "→", "SequenceWithMemory": "→*", "Fallback": "?", "FallbackWithMemory": "?*", "Parallel": "⇉",
+    "Inverter": "¬", "Retry": "retry", "Repeat": "repeat", "Timeout": "timeout", "ForceSuccess": "✓",
+    "ForceFailure": "✗",
+}
+
+
+def draw_tree(ax, root, x_gap=1.0, y_gap=1.0, fontsize=8):
+    """Draw a behaviour tree (motion_planning.bt node) top-down, coloured by each node's last status.
+
+    Composites and decorators are squares with their symbol; conditions are ellipses, actions rectangles, both with
+    their name. Nodes not ticked since the last halt are drawn white.
+    """
+    from matplotlib.patches import Ellipse, FancyBboxPatch
+
+    positions = {}
+    next_leaf = [0.0]
+
+    def layout(node, depth):
+        kids = list(node.children)
+        if not kids:
+            x = next_leaf[0]
+            next_leaf[0] += x_gap
+        else:
+            xs = [layout(c, depth + 1) for c in kids]
+            x = 0.5 * (xs[0] + xs[-1])
+        positions[id(node)] = (x, -depth * y_gap, node)
+        return x
+
+    layout(root, 0)
+
+    def draw(node):
+        x, y, _ = positions[id(node)]
+        for c in node.children:
+            cx, cy, _ = positions[id(c)]
+            ax.plot([x, cx], [y - 0.22 * y_gap, cy + 0.22 * y_gap], color=INK_MUTED, lw=1, zorder=1)
+            draw(c)
+        face = STATUS_COLORS[node.last_status.name] if node.ticked else SURFACE
+        text_color = "white" if node.ticked else INK
+        if node.kind in ("Condition", "Action"):
+            w, h = 0.9 * x_gap, 0.42 * y_gap
+            if node.kind == "Condition":
+                ax.add_patch(Ellipse((x, y), w, h, facecolor=face, edgecolor=INK, lw=1, zorder=2))
+            else:
+                ax.add_patch(FancyBboxPatch((x - w / 2, y - h / 2), w, h, boxstyle="round,pad=0.02",
+                                            facecolor=face, edgecolor=INK, lw=1, zorder=2))
+            ax.text(x, y, node.name, ha="center", va="center", fontsize=fontsize, color=text_color, zorder=3)
+        else:
+            s = 0.36 * y_gap
+            ax.add_patch(FancyBboxPatch((x - s / 2, y - s / 2), s, s, boxstyle="square,pad=0.02",
+                                        facecolor=face, edgecolor=INK, lw=1.2, zorder=2))
+            label = _KIND_LABEL.get(node.kind, node.kind)
+            ax.text(x, y, label, ha="center", va="center", fontsize=fontsize + 2 if len(label) <= 2 else fontsize - 2,
+                    color=text_color, zorder=3)
+            ax.text(x + s / 2 + 0.05, y + s / 2, node.name, ha="left", va="bottom", fontsize=fontsize - 1,
+                    color=INK_SECONDARY, zorder=3)
+
+    draw(root)
+    xs = [p[0] for p in positions.values()]
+    ys = [p[1] for p in positions.values()]
+    ax.set_xlim(min(xs) - x_gap, max(xs) + x_gap)
+    ax.set_ylim(min(ys) - 0.6 * y_gap, max(ys) + 0.6 * y_gap)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    for status, color in STATUS_COLORS.items():
+        ax.plot([], [], "s", color=color, ms=9, label=status.upper())
+    ax.plot([], [], "s", mfc=SURFACE, mec=INK, ms=9, label="not ticked")
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.12), ncol=4, fontsize=fontsize)

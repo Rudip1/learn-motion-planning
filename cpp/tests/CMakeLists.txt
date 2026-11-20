@@ -13,6 +13,10 @@ add_executable(motion_planning_tests
     test_potential.cpp
     test_graph_search.cpp
     test_sampling.cpp
+    test_dubins.cpp
+    test_tracking.cpp
+    test_dwa.cpp
+    test_behavior_tree.cpp
 )
 target_link_libraries(motion_planning_tests PRIVATE motion_planning Catch2::Catch2WithMain)
 catch_discover_tests(motion_planning_tests)

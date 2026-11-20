@@ -36,6 +36,10 @@ add_library(motion_planning
     cpp/src/potential.cpp
     cpp/src/graph_search.cpp
     cpp/src/sampling.cpp
+    cpp/src/dubins.cpp
+    cpp/src/tracking.cpp
+    cpp/src/dwa.cpp
+    cpp/src/behavior_tree.cpp
 )
 add_library(motion_planning::motion_planning ALIAS motion_planning)
 target_include_directories(motion_planning PUBLIC

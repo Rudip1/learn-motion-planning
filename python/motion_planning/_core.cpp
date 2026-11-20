@@ -8,12 +8,16 @@
 #include <optional>
 
 #include "motion_planning/angles.hpp"
+#include "motion_planning/behavior_tree.hpp"
+#include "motion_planning/dubins.hpp"
+#include "motion_planning/dwa.hpp"
 #include "motion_planning/graph_search.hpp"
 #include "motion_planning/grid.hpp"
 #include "motion_planning/kinematics.hpp"
 #include "motion_planning/pose_control.hpp"
 #include "motion_planning/potential.hpp"
 #include "motion_planning/sampling.hpp"
+#include "motion_planning/tracking.hpp"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -437,6 +441,260 @@ void bind_sampling(py::module_& m) {
         "path"_a);
 }
 
+void bind_dubins(py::module_& m) {
+    py::enum_<DubinsWord>(m, "DubinsWord")
+        .value("LSL", DubinsWord::LSL)
+        .value("RSR", DubinsWord::RSR)
+        .value("LSR", DubinsWord::LSR)
+        .value("RSL", DubinsWord::RSL)
+        .value("RLR", DubinsWord::RLR)
+        .value("LRL", DubinsWord::LRL);
+    py::class_<DubinsPath>(m, "DubinsPath")
+        .def_readonly("start", &DubinsPath::start)
+        .def_readonly("word", &DubinsPath::word)
+        .def_readonly("lengths", &DubinsPath::lengths)
+        .def_readonly("radius", &DubinsPath::radius)
+        .def("length", &DubinsPath::length)
+        .def("at", &DubinsPath::at, "s"_a)
+        .def("sample", &DubinsPath::sample, "step"_a)
+        .def("truncated", &DubinsPath::truncated, "s"_a)
+        .def("__repr__", [](const DubinsPath& p) {
+            return "DubinsPath(" + to_string(p.word) + ", length=" + std::to_string(p.length()) + ")";
+        });
+    m.def("dubins_path", &dubins_path, "q0"_a, "q1"_a, "radius"_a, "word"_a,
+          "Eqs. (6.3)-(6.8); None if infeasible.");
+    m.def("all_dubins_paths", &all_dubins_paths, "q0"_a, "q1"_a, "radius"_a);
+    m.def("shortest_dubins_path", &shortest_dubins_path, "q0"_a, "q1"_a, "radius"_a);
+    m.def("dubins_distance", &dubins_distance, "q0"_a, "q1"_a, "radius"_a);
+    m.def("dubins_path_valid", &dubins_path_valid, "path"_a, "problem"_a, "step"_a, "Eq. (6.9).");
+
+    py::class_<DubinsPlannerOptions>(m, "DubinsPlannerOptions")
+        .def(py::init([](int iters, double radius, double step, double bias, double gamma, double cstep,
+                         bool star, std::uint32_t seed) {
+                 return DubinsPlannerOptions{iters, radius, step, bias, gamma, cstep, star, seed};
+             }),
+             "max_iterations"_a = 3000, "radius"_a = 1.0, "step"_a = 3.0, "goal_bias"_a = 0.05,
+             "gamma"_a = 0.0, "collision_step"_a = 0.05, "star"_a = true, "seed"_a = 1)
+        .def_readwrite("max_iterations", &DubinsPlannerOptions::max_iterations)
+        .def_readwrite("radius", &DubinsPlannerOptions::radius)
+        .def_readwrite("step", &DubinsPlannerOptions::step)
+        .def_readwrite("goal_bias", &DubinsPlannerOptions::goal_bias)
+        .def_readwrite("gamma", &DubinsPlannerOptions::gamma)
+        .def_readwrite("collision_step", &DubinsPlannerOptions::collision_step)
+        .def_readwrite("star", &DubinsPlannerOptions::star)
+        .def_readwrite("seed", &DubinsPlannerOptions::seed);
+    py::class_<DubinsTreeResult>(m, "DubinsTreeResult")
+        .def_readonly("nodes", &DubinsTreeResult::nodes)
+        .def_readonly("parent", &DubinsTreeResult::parent)
+        .def_readonly("cost", &DubinsTreeResult::cost)
+        .def_readonly("found", &DubinsTreeResult::found)
+        .def_readonly("segments", &DubinsTreeResult::segments)
+        .def_readonly("path_cost", &DubinsTreeResult::path_cost)
+        .def_readonly("best_cost_history", &DubinsTreeResult::best_cost_history)
+        .def(
+            "sample_path",
+            [](const DubinsTreeResult& t, double step) {
+                std::vector<Pose> poses;
+                for (const DubinsPath& s : t.segments) {
+                    const Trajectory tr = s.sample(step);
+                    for (Eigen::Index k = poses.empty() ? 0 : 1; k < tr.rows(); ++k)
+                        poses.push_back(tr.row(k));
+                }
+                Trajectory out(static_cast<Eigen::Index>(poses.size()), 3);
+                for (std::size_t i = 0; i < poses.size(); ++i)
+                    out.row(static_cast<Eigen::Index>(i)) = poses[i];
+                return out;
+            },
+            "step"_a = 0.05, "The whole path as poses every `step` metres.");
+    m.def("dubins_rrt_star", &dubins_rrt_star, "problem"_a, "start"_a, "goal"_a,
+          "options"_a = DubinsPlannerOptions{}, "Section 6.4.");
+}
+
+void bind_tracking(py::module_& m) {
+    m.def("shortcut_greedy", &shortcut_greedy, "path"_a, "motion_valid"_a, "Section 7.1.");
+    m.def("shortcut_random", &shortcut_random, "path"_a, "motion_valid"_a, "iterations"_a = 200, "seed"_a = 1,
+          "Section 7.1.");
+    m.def("turning_angles", &turning_angles, "path"_a);
+    py::class_<PathProjection>(m, "PathProjection")
+        .def_readonly("s", &PathProjection::s)
+        .def_readonly("point", &PathProjection::point)
+        .def_readonly("heading", &PathProjection::heading)
+        .def_readonly("lateral", &PathProjection::lateral);
+    py::class_<Path2D>(m, "Path2D")
+        .def(py::init<const Points2D&>(), "points"_a)
+        .def("length", &Path2D::length)
+        .def_property_readonly("points", &Path2D::points)
+        .def("point_at", &Path2D::point_at, "s"_a)
+        .def("heading_at", &Path2D::heading_at, "s"_a)
+        .def("project", &Path2D::project, "p"_a, "Eq. (7.1).");
+    m.def("pure_pursuit_curvature", &pure_pursuit_curvature, "q"_a, "target"_a, "Eq. (7.3).");
+    m.def("stanley_steering", &stanley_steering, "heading_error"_a, "lateral_error"_a, "speed"_a, "gain"_a,
+          "softening"_a, "Eq. (7.5).");
+    py::enum_<TrackingController>(m, "TrackingController")
+        .value("PurePursuit", TrackingController::PurePursuit)
+        .value("Stanley", TrackingController::Stanley);
+    py::class_<TrackingOptions>(m, "TrackingOptions")
+        .def(py::init([](TrackingController c, double speed, double lookahead, double lookahead_gain,
+                         double k, double ks, double rate, double dt, int max_steps) {
+                 return TrackingOptions{c, speed, lookahead, lookahead_gain, k, ks, rate, dt, max_steps};
+             }),
+             "controller"_a = TrackingController::PurePursuit, "speed"_a = 1.0, "lookahead"_a = 1.0,
+             "lookahead_gain"_a = 0.0, "stanley_gain"_a = 1.0, "softening"_a = 0.1,
+             "steering_rate"_a = INFINITY, "dt"_a = 0.02, "max_steps"_a = 20000)
+        .def_readwrite("controller", &TrackingOptions::controller)
+        .def_readwrite("speed", &TrackingOptions::speed)
+        .def_readwrite("lookahead", &TrackingOptions::lookahead)
+        .def_readwrite("lookahead_gain", &TrackingOptions::lookahead_gain)
+        .def_readwrite("stanley_gain", &TrackingOptions::stanley_gain)
+        .def_readwrite("softening", &TrackingOptions::softening)
+        .def_readwrite("steering_rate", &TrackingOptions::steering_rate)
+        .def_readwrite("dt", &TrackingOptions::dt)
+        .def_readwrite("max_steps", &TrackingOptions::max_steps);
+    py::class_<TrackingResult>(m, "TrackingResult")
+        .def_readonly("states", &TrackingResult::states)
+        .def_readonly("cross_track", &TrackingResult::cross_track)
+        .def_readonly("steering", &TrackingResult::steering)
+        .def_readonly("reached_end", &TrackingResult::reached_end);
+    m.def("track_path", &track_path, "vehicle"_a, "path"_a, "start"_a, "options"_a = TrackingOptions{});
+}
+
+void bind_dwa(py::module_& m) {
+    py::class_<DwaConfig>(m, "DwaConfig",
+                          "Robot limits and DWA objective weights; all fields keyword-settable.")
+        .def(py::init([](py::kwargs kw) {
+            DwaConfig c;
+            py::object o = py::cast(&c, py::return_value_policy::reference);
+            for (auto item : kw) py::setattr(o, item.first, item.second);
+            return c;
+        }))
+        .def_readwrite("max_speed", &DwaConfig::max_speed)
+        .def_readwrite("min_speed", &DwaConfig::min_speed)
+        .def_readwrite("max_yaw_rate", &DwaConfig::max_yaw_rate)
+        .def_readwrite("max_accel", &DwaConfig::max_accel)
+        .def_readwrite("max_yaw_accel", &DwaConfig::max_yaw_accel)
+        .def_readwrite("control_period", &DwaConfig::control_period)
+        .def_readwrite("horizon", &DwaConfig::horizon)
+        .def_readwrite("sim_step", &DwaConfig::sim_step)
+        .def_readwrite("v_samples", &DwaConfig::v_samples)
+        .def_readwrite("w_samples", &DwaConfig::w_samples)
+        .def_readwrite("robot_radius", &DwaConfig::robot_radius)
+        .def_readwrite("heading_weight", &DwaConfig::heading_weight)
+        .def_readwrite("distance_weight", &DwaConfig::distance_weight)
+        .def_readwrite("velocity_weight", &DwaConfig::velocity_weight)
+        .def_readwrite("distance_cap", &DwaConfig::distance_cap);
+    py::class_<DynamicWindow>(m, "DynamicWindow")
+        .def_readonly("v_min", &DynamicWindow::v_min)
+        .def_readonly("v_max", &DynamicWindow::v_max)
+        .def_readonly("w_min", &DynamicWindow::w_min)
+        .def_readonly("w_max", &DynamicWindow::w_max);
+    m.def("dynamic_window", &dynamic_window, "current"_a, "config"_a, "Eqs. (8.1)-(8.2).");
+    m.def("rollout", &rollout, "q"_a, "v"_a, "w"_a, "config"_a);
+    py::class_<DwaCandidate>(m, "DwaCandidate")
+        .def_readonly("v", &DwaCandidate::v)
+        .def_readonly("w", &DwaCandidate::w)
+        .def_readonly("heading", &DwaCandidate::heading)
+        .def_readonly("distance", &DwaCandidate::distance)
+        .def_readonly("velocity", &DwaCandidate::velocity)
+        .def_readonly("total", &DwaCandidate::total)
+        .def_readonly("free_distance", &DwaCandidate::free_distance)
+        .def_readonly("admissible", &DwaCandidate::admissible);
+    py::class_<DwaDecision>(m, "DwaDecision")
+        .def_readonly("found", &DwaDecision::found)
+        .def_readonly("command", &DwaDecision::command)
+        .def_readonly("candidates", &DwaDecision::candidates)
+        .def_readonly("best_rollout", &DwaDecision::best_rollout);
+    m.def("dwa_step", &dwa_step, "grid"_a, "distance"_a, "q"_a, "current"_a, "goal"_a, "config"_a,
+          "Section 8.3.");
+    py::class_<DwaRun>(m, "DwaRun")
+        .def_readonly("states", &DwaRun::states)
+        .def_readonly("commands", &DwaRun::commands)
+        .def_readonly("reached_goal", &DwaRun::reached_goal)
+        .def_readonly("stuck", &DwaRun::stuck);
+    m.def("run_dwa", &run_dwa, "grid"_a, "start"_a, "goal"_a, "config"_a, "global_path"_a = Points2D(),
+          "carrot_distance"_a = 1.0, "goal_tolerance"_a = 0.15, "max_time"_a = 120.0, "stuck_time"_a = 10.0,
+          "Section 8.4.");
+}
+
+void bind_behavior_tree(py::module_& parent) {
+    namespace bt = motion_planning::bt;
+    py::module_ m = parent.def_submodule("bt", "Behaviour trees (chapter 9).");
+    py::enum_<bt::Status>(m, "Status")
+        .value("Success", bt::Status::Success)
+        .value("Failure", bt::Status::Failure)
+        .value("Running", bt::Status::Running);
+    py::class_<bt::Blackboard>(m, "Blackboard")
+        .def(py::init<>())
+        .def("set", &bt::Blackboard::set, "key"_a, "value"_a)
+        .def("get", &bt::Blackboard::get, "key"_a)
+        .def("has", &bt::Blackboard::has, "key"_a)
+        .def("number", &bt::Blackboard::number, "key"_a)
+        .def("__getitem__", &bt::Blackboard::get)
+        .def("__setitem__", &bt::Blackboard::set)
+        .def("__contains__", &bt::Blackboard::has)
+        .def("to_dict", &bt::Blackboard::values);
+    py::class_<bt::Node, std::shared_ptr<bt::Node>>(m, "Node")
+        .def("tick", &bt::Node::tick, "blackboard"_a)
+        .def("halt", &bt::Node::halt)
+        .def_property_readonly("name", &bt::Node::name)
+        .def_property_readonly("kind", &bt::Node::kind)
+        .def_property_readonly("children", &bt::Node::children)
+        .def_property_readonly("ticked", &bt::Node::ticked)
+        .def_property_readonly("last_status", &bt::Node::last_status)
+        .def_property_readonly("tick_count", &bt::Node::tick_count);
+    py::class_<bt::Sequence, bt::Node, std::shared_ptr<bt::Sequence>>(m, "Sequence")
+        .def(py::init<std::string, std::vector<bt::NodePtr>, bool>(), "name"_a, "children"_a,
+             "memory"_a = false, "Eq. (9.1).");
+    py::class_<bt::Fallback, bt::Node, std::shared_ptr<bt::Fallback>>(m, "Fallback")
+        .def(py::init<std::string, std::vector<bt::NodePtr>, bool>(), "name"_a, "children"_a,
+             "memory"_a = false, "Eq. (9.2).");
+    py::class_<bt::Parallel, bt::Node, std::shared_ptr<bt::Parallel>>(m, "Parallel")
+        .def(py::init<std::string, std::vector<bt::NodePtr>, int>(), "name"_a, "children"_a,
+             "success_threshold"_a, "Eq. (9.3).");
+    py::class_<bt::Inverter, bt::Node, std::shared_ptr<bt::Inverter>>(m, "Inverter")
+        .def(py::init<std::string, bt::NodePtr>(), "name"_a, "child"_a);
+    py::class_<bt::Retry, bt::Node, std::shared_ptr<bt::Retry>>(m, "Retry")
+        .def(py::init<std::string, bt::NodePtr, int>(), "name"_a, "child"_a, "attempts"_a);
+    py::class_<bt::Repeat, bt::Node, std::shared_ptr<bt::Repeat>>(m, "Repeat")
+        .def(py::init<std::string, bt::NodePtr, int>(), "name"_a, "child"_a, "times"_a);
+    py::class_<bt::Timeout, bt::Node, std::shared_ptr<bt::Timeout>>(m, "Timeout")
+        .def(py::init<std::string, bt::NodePtr, int>(), "name"_a, "child"_a, "max_ticks"_a);
+    py::class_<bt::Force, bt::Node, std::shared_ptr<bt::Force>>(m, "Force")
+        .def(py::init<std::string, bt::NodePtr, bt::Status>(), "name"_a, "child"_a, "status"_a);
+    // Python callbacks must see the tree's blackboard itself, not a copy: pass it by reference explicitly.
+    py::class_<bt::Condition, bt::Node, std::shared_ptr<bt::Condition>>(m, "Condition")
+        .def(py::init([](std::string name, py::function f) {
+                 return std::make_shared<bt::Condition>(std::move(name), [f](bt::Blackboard& bb) {
+                     return f(py::cast(&bb, py::return_value_policy::reference)).cast<bool>();
+                 });
+             }),
+             "name"_a, "predicate"_a);
+    py::class_<bt::Action, bt::Node, std::shared_ptr<bt::Action>>(m, "Action")
+        .def(py::init([](std::string name, py::function f, py::object on_halt) {
+                 std::function<void()> h;
+                 if (!on_halt.is_none()) h = [on_halt]() { on_halt(); };
+                 return std::make_shared<bt::Action>(
+                     std::move(name),
+                     [f](bt::Blackboard& bb) {
+                         return f(py::cast(&bb, py::return_value_policy::reference)).cast<bt::Status>();
+                     },
+                     h);
+             }),
+             "name"_a, "run"_a, "on_halt"_a = py::none());
+    m.def("compare", &bt::compare, "name"_a, "key"_a, "op"_a, "value"_a);
+    m.def("set_value", &bt::set_value, "name"_a, "key"_a, "value"_a);
+    m.def("wait", &bt::wait, "name"_a, "ticks"_a);
+    py::class_<bt::Tree>(m, "Tree")
+        .def(py::init<bt::NodePtr>(), "root"_a)
+        .def("tick", &bt::Tree::tick)
+        .def("run", &bt::Tree::run, "max_ticks"_a)
+        .def("halt", &bt::Tree::halt)
+        .def_property_readonly("blackboard", &bt::Tree::blackboard,
+                               py::return_value_policy::reference_internal)
+        .def_property_readonly("root", &bt::Tree::root)
+        .def_property_readonly("ticks", &bt::Tree::ticks)
+        .def("__str__", &bt::Tree::to_string);
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -447,4 +705,8 @@ PYBIND11_MODULE(_core, m) {
     bind_potential(m);
     bind_graph_search(m);
     bind_sampling(m);
+    bind_dubins(m);
+    bind_tracking(m);
+    bind_dwa(m);
+    bind_behavior_tree(m);
 }
