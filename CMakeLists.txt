@@ -40,6 +40,7 @@ add_library(motion_planning
     cpp/src/tracking.cpp
     cpp/src/dwa.cpp
     cpp/src/behavior_tree.cpp
+    cpp/src/task_planning.cpp
 )
 add_library(motion_planning::motion_planning ALIAS motion_planning)
 target_include_directories(motion_planning PUBLIC

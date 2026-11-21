@@ -17,6 +17,8 @@ add_executable(motion_planning_tests
     test_tracking.cpp
     test_dwa.cpp
     test_behavior_tree.cpp
+    test_task_planning.cpp
 )
 target_link_libraries(motion_planning_tests PRIVATE motion_planning Catch2::Catch2WithMain)
 catch_discover_tests(motion_planning_tests)
+target_compile_definitions(motion_planning_tests PRIVATE PDDL_DIR="${PROJECT_SOURCE_DIR}/python/motion_planning/pddl")

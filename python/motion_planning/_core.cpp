@@ -9,6 +9,7 @@
 
 #include "motion_planning/angles.hpp"
 #include "motion_planning/behavior_tree.hpp"
+#include "motion_planning/task_planning.hpp"
 #include "motion_planning/dubins.hpp"
 #include "motion_planning/dwa.hpp"
 #include "motion_planning/graph_search.hpp"
@@ -695,6 +696,111 @@ void bind_behavior_tree(py::module_& parent) {
         .def("__str__", &bt::Tree::to_string);
 }
 
+
+void bind_task_planning(py::module_& parent) {
+    namespace tp = motion_planning::task;
+    py::module_ m = parent.def_submodule("task", "Chapter 10: STRIPS/PDDL task planning.");
+    py::class_<tp::Atom>(m, "Atom")
+        .def_readonly("predicate", &tp::Atom::predicate)
+        .def_readonly("args", &tp::Atom::args)
+        .def("__repr__", [](const tp::Atom& a) {
+            std::string s = "(" + a.predicate;
+            for (const auto& x : a.args) s += " " + x;
+            return s + ")";
+        });
+    py::class_<tp::Literal>(m, "Literal").def_readonly("atom", &tp::Literal::atom).def_readonly("positive", &tp::Literal::positive);
+    py::class_<tp::Parameter>(m, "Parameter").def_readonly("name", &tp::Parameter::name).def_readonly("type", &tp::Parameter::type);
+    py::class_<tp::ActionSchema>(m, "ActionSchema")
+        .def_readonly("name", &tp::ActionSchema::name)
+        .def_readonly("parameters", &tp::ActionSchema::parameters)
+        .def_readonly("precondition", &tp::ActionSchema::precondition)
+        .def_readonly("add", &tp::ActionSchema::add)
+        .def_readonly("delete", &tp::ActionSchema::del);
+    py::class_<tp::Domain>(m, "Domain")
+        .def_readonly("name", &tp::Domain::name)
+        .def_readonly("types", &tp::Domain::types)
+        .def_readonly("constants", &tp::Domain::constants)
+        .def_readonly("predicates", &tp::Domain::predicates)
+        .def_readonly("actions", &tp::Domain::actions);
+    py::class_<tp::Problem>(m, "Problem")
+        .def_readonly("name", &tp::Problem::name)
+        .def_readonly("objects", &tp::Problem::objects)
+        .def_readonly("init", &tp::Problem::init)
+        .def_readonly("goal", &tp::Problem::goal);
+    m.def("parse_domain", &tp::parse_domain, py::arg("text"), "Parse a PDDL domain (STRIPS subset).");
+    m.def("parse_problem", &tp::parse_problem, py::arg("text"), "Parse a PDDL problem.");
+
+    py::class_<tp::GroundAction>(m, "GroundAction")
+        .def_readonly("name", &tp::GroundAction::name)
+        .def_readonly("pre", &tp::GroundAction::pre)
+        .def_readonly("pre_neg", &tp::GroundAction::pre_neg)
+        .def_readonly("add", &tp::GroundAction::add)
+        .def_readonly("delete", &tp::GroundAction::del)
+        .def_readonly("cost", &tp::GroundAction::cost);
+    py::class_<tp::State>(m, "State")
+        .def("test", &tp::State::test, py::arg("fact"))
+        .def("count", &tp::State::count)
+        .def("__eq__", &tp::State::operator==)
+        .def("__hash__", &tp::State::hash);
+    py::class_<tp::GroundTask>(m, "GroundTask")
+        .def_readonly("facts", &tp::GroundTask::facts)
+        .def_readonly("actions", &tp::GroundTask::actions)
+        .def_readonly("init", &tp::GroundTask::init)
+        .def_readonly("goal_pos", &tp::GroundTask::goal_pos)
+        .def_readonly("goal_neg", &tp::GroundTask::goal_neg)
+        .def("fact_index", &tp::GroundTask::fact_index, py::arg("fact"))
+        .def("describe", &tp::GroundTask::describe, py::arg("state"))
+        .def("true_facts", [](const tp::GroundTask& t, const tp::State& s) {
+            std::vector<std::string> out;
+            for (int f = 0; f < int(t.facts.size()); ++f)
+                if (s.test(f)) out.push_back(t.facts[size_t(f)]);
+            return out;
+        }, py::arg("state"), "The facts true in a state.");
+    m.def("ground", &tp::ground, py::arg("domain"), py::arg("problem"), "Ground a problem (eq. 10.2, section 10.3).");
+    m.def("applicable", &tp::applicable, py::arg("action"), py::arg("state"), "Precondition test (eq. 10.3).");
+    m.def("apply", &tp::apply, py::arg("action"), py::arg("state"), "Progression (eq. 10.4).");
+    m.def("is_goal", &tp::is_goal, py::arg("task"), py::arg("state"));
+    m.def("validate_plan", &tp::validate_plan, py::arg("task"), py::arg("plan"),
+          "Empty string if the plan is valid, else the reason.");
+
+    py::enum_<tp::Heuristic>(m, "Heuristic")
+        .value("Zero", tp::Heuristic::Zero)
+        .value("GoalCount", tp::Heuristic::GoalCount)
+        .value("HMax", tp::Heuristic::HMax)
+        .value("HAdd", tp::Heuristic::HAdd);
+    m.def("heuristic", &tp::heuristic, py::arg("task"), py::arg("state"), py::arg("h"),
+          "Heuristic value of a state (eqs. 10.7-10.10).");
+    py::enum_<tp::SearchAlgorithm>(m, "SearchAlgorithm")
+        .value("BreadthFirst", tp::SearchAlgorithm::BreadthFirst)
+        .value("AStar", tp::SearchAlgorithm::AStar)
+        .value("GreedyBestFirst", tp::SearchAlgorithm::GreedyBestFirst);
+    py::class_<tp::SearchConfig>(m, "SearchConfig")
+        .def(py::init([](tp::SearchAlgorithm algorithm, tp::Heuristic heuristic, double weight, long max_expansions) {
+                 tp::SearchConfig c;
+                 c.algorithm = algorithm;
+                 c.heuristic = heuristic;
+                 c.weight = weight;
+                 c.max_expansions = max_expansions;
+                 return c;
+             }),
+             py::arg("algorithm") = tp::SearchAlgorithm::AStar, py::arg("heuristic") = tp::Heuristic::HMax,
+             py::arg("weight") = 1.0, py::arg("max_expansions") = 2000000)
+        .def_readwrite("algorithm", &tp::SearchConfig::algorithm)
+        .def_readwrite("heuristic", &tp::SearchConfig::heuristic)
+        .def_readwrite("weight", &tp::SearchConfig::weight)
+        .def_readwrite("max_expansions", &tp::SearchConfig::max_expansions);
+    py::class_<tp::SearchResult>(m, "SearchResult")
+        .def_readonly("solved", &tp::SearchResult::solved)
+        .def_readonly("plan", &tp::SearchResult::plan)
+        .def_readonly("cost", &tp::SearchResult::cost)
+        .def_readonly("expanded", &tp::SearchResult::expanded)
+        .def_readonly("generated", &tp::SearchResult::generated)
+        .def_readonly("h_init", &tp::SearchResult::h_init);
+    m.def("plan", &tp::plan, py::arg("task"), py::arg("config") = tp::SearchConfig{}, "Forward search (section 10.4).");
+    m.def("plan_names", &tp::plan_names, py::arg("task"), py::arg("plan"));
+    m.def("plan_states", &tp::plan_states, py::arg("task"), py::arg("plan"));
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -709,4 +815,5 @@ PYBIND11_MODULE(_core, m) {
     bind_tracking(m);
     bind_dwa(m);
     bind_behavior_tree(m);
+    bind_task_planning(m);
 }

@@ -11,5 +11,5 @@ Chapters follow `docs/CHAPTER_PLAN.md`; each finished chapter has its theory tex
 - [x] 07 Path smoothing and tracking
 - [x] 08 Local planning
 - [x] 09 Behaviour trees
-- [ ] 10 Task planning
+- [x] 10 Task planning
 - [ ] 11 Reinforcement learning basics
