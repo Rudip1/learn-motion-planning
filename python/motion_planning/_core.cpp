@@ -10,6 +10,7 @@
 #include "motion_planning/angles.hpp"
 #include "motion_planning/behavior_tree.hpp"
 #include "motion_planning/task_planning.hpp"
+#include "motion_planning/reinforcement.hpp"
 #include "motion_planning/dubins.hpp"
 #include "motion_planning/dwa.hpp"
 #include "motion_planning/graph_search.hpp"
@@ -801,6 +802,91 @@ void bind_task_planning(py::module_& parent) {
     m.def("plan_states", &tp::plan_states, py::arg("task"), py::arg("plan"));
 }
 
+void bind_reinforcement(py::module_& parent) {
+    namespace rl = motion_planning::rl;
+    py::module_ m = parent.def_submodule("rl", "Chapter 11: MDPs, value and policy iteration, Q-learning and SARSA.");
+    py::class_<rl::Transition>(m, "Transition")
+        .def(py::init([](int next, double probability, double reward) { return rl::Transition{next, probability, reward}; }),
+             py::arg("next"), py::arg("probability"), py::arg("reward"))
+        .def_readwrite("next", &rl::Transition::next)
+        .def_readwrite("probability", &rl::Transition::probability)
+        .def_readwrite("reward", &rl::Transition::reward)
+        .def("__repr__", [](const rl::Transition& t) {
+            return "Transition(next=" + std::to_string(t.next) + ", p=" + std::to_string(t.probability) +
+                   ", r=" + std::to_string(t.reward) + ")";
+        });
+    py::class_<rl::Mdp>(m, "Mdp")
+        .def(py::init<>())
+        .def_readwrite("num_states", &rl::Mdp::num_states)
+        .def_readwrite("num_actions", &rl::Mdp::num_actions)
+        .def_readwrite("P", &rl::Mdp::P)
+        .def_readwrite("terminal", &rl::Mdp::terminal)
+        .def("is_terminal", &rl::Mdp::is_terminal, py::arg("s"))
+        .def("q_value", &rl::Mdp::q_value, py::arg("V"), py::arg("s"), py::arg("a"), py::arg("gamma"),
+             "sum_s' p (r + gamma V(s')) (eq. 11.4).");
+    py::class_<rl::GridWorld>(m, "GridWorld")
+        .def_static("from_layout", &rl::GridWorld::from_layout, py::arg("layout"), py::arg("step_reward") = -1.0,
+                    py::arg("goal_reward") = 0.0, py::arg("pit_reward") = -100.0, py::arg("slip") = 0.0)
+        .def_readonly("rows", &rl::GridWorld::rows)
+        .def_readonly("cols", &rl::GridWorld::cols)
+        .def_readonly("layout", &rl::GridWorld::layout)
+        .def_readonly("slip", &rl::GridWorld::slip)
+        .def("state", &rl::GridWorld::state, py::arg("row"), py::arg("col"))
+        .def("row", &rl::GridWorld::row, py::arg("s"))
+        .def("col", &rl::GridWorld::col, py::arg("s"))
+        .def("cell", &rl::GridWorld::cell, py::arg("s"))
+        .def("start", &rl::GridWorld::start)
+        .def("to_mdp", &rl::GridWorld::to_mdp, "The MDP of the grid (eq. 11.1).");
+    m.def("cliff_world", &rl::cliff_world, "The 4 x 12 cliff of Sutton and Barto, example 6.6.");
+    py::class_<rl::ValueIterationResult>(m, "ValueIterationResult")
+        .def_readonly("V", &rl::ValueIterationResult::V)
+        .def_readonly("policy", &rl::ValueIterationResult::policy)
+        .def_readonly("iterations", &rl::ValueIterationResult::iterations)
+        .def_readonly("residuals", &rl::ValueIterationResult::residuals);
+    m.def("value_iteration", &rl::value_iteration, py::arg("mdp"), py::arg("gamma"), py::arg("tol") = 1e-10,
+          py::arg("max_iterations") = 100000, "Value iteration (eq. 11.6).");
+    m.def("evaluate_policy", &rl::evaluate_policy, py::arg("mdp"), py::arg("policy"), py::arg("gamma"),
+          "Exact policy evaluation, (I - gamma P_pi) V = r_pi (eq. 11.3).");
+    py::class_<rl::PolicyIterationResult>(m, "PolicyIterationResult")
+        .def_readonly("V", &rl::PolicyIterationResult::V)
+        .def_readonly("policy", &rl::PolicyIterationResult::policy)
+        .def_readonly("iterations", &rl::PolicyIterationResult::iterations);
+    m.def("policy_iteration", &rl::policy_iteration, py::arg("mdp"), py::arg("gamma"), py::arg("max_iterations") = 1000,
+          "Policy iteration (section 11.4).");
+    m.def("greedy_policy", &rl::greedy_policy, py::arg("mdp"), py::arg("V"), py::arg("gamma"), "Greedy policy (eq. 11.5).");
+    py::enum_<rl::TdMethod>(m, "TdMethod").value("QLearning", rl::TdMethod::QLearning).value("Sarsa", rl::TdMethod::Sarsa);
+    py::class_<rl::TdConfig>(m, "TdConfig")
+        .def(py::init([](rl::TdMethod method, double gamma, double alpha, double epsilon, int episodes, int max_steps,
+                         std::uint64_t seed) {
+                 rl::TdConfig c;
+                 c.method = method;
+                 c.gamma = gamma;
+                 c.alpha = alpha;
+                 c.epsilon = epsilon;
+                 c.episodes = episodes;
+                 c.max_steps = max_steps;
+                 c.seed = seed;
+                 return c;
+             }),
+             py::arg("method") = rl::TdMethod::QLearning, py::arg("gamma") = 1.0, py::arg("alpha") = 0.5,
+             py::arg("epsilon") = 0.1, py::arg("episodes") = 500, py::arg("max_steps") = 1000, py::arg("seed") = 1)
+        .def_readwrite("method", &rl::TdConfig::method)
+        .def_readwrite("gamma", &rl::TdConfig::gamma)
+        .def_readwrite("alpha", &rl::TdConfig::alpha)
+        .def_readwrite("epsilon", &rl::TdConfig::epsilon)
+        .def_readwrite("episodes", &rl::TdConfig::episodes)
+        .def_readwrite("max_steps", &rl::TdConfig::max_steps)
+        .def_readwrite("seed", &rl::TdConfig::seed);
+    py::class_<rl::TdResult>(m, "TdResult")
+        .def_readonly("Q", &rl::TdResult::Q)
+        .def_readonly("episode_returns", &rl::TdResult::episode_returns)
+        .def_readonly("episode_lengths", &rl::TdResult::episode_lengths);
+    m.def("td_control", &rl::td_control, py::arg("mdp"), py::arg("start"), py::arg("config") = rl::TdConfig{},
+          "Tabular Q-learning or SARSA (eqs. 11.8-11.10).");
+    m.def("greedy_from_q", &rl::greedy_from_q, py::arg("mdp"), py::arg("Q"));
+    m.def("rollout", &rl::rollout, py::arg("mdp"), py::arg("policy"), py::arg("start"), py::arg("max_steps") = 1000);
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_core, m) {
@@ -816,4 +902,5 @@ PYBIND11_MODULE(_core, m) {
     bind_dwa(m);
     bind_behavior_tree(m);
     bind_task_planning(m);
+    bind_reinforcement(m);
 }

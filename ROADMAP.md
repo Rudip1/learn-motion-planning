@@ -12,4 +12,4 @@ Chapters follow `docs/CHAPTER_PLAN.md`; each finished chapter has its theory tex
 - [x] 08 Local planning
 - [x] 09 Behaviour trees
 - [x] 10 Task planning
-- [ ] 11 Reinforcement learning basics
+- [x] 11 Reinforcement learning basics
