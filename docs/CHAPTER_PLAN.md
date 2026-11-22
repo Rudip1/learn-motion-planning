@@ -19,4 +19,3 @@ potential functions, graph search, RRT/RRT*, DWA and online RRT for a TurtleBot,
 11. Reinforcement learning basics: MDPs, value iteration, tabular Q-learning on a grid world.
 
 Used in: [lidar-exploration](https://github.com/Rudip1/lidar-exploration), [CA-MCW](https://github.com/Rudip1/CA-MCW).
-Acknowledgement: chapter 11 grew out of joint work with Gebrecherkos Gebreslassie.

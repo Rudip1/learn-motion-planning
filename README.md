@@ -58,10 +58,6 @@ tools/         figure generator and notebook tooling
   the sampling-based local planners (dynamic window) it builds on.
 * [robotics-learning](https://github.com/Rudip1/robotics-learning) — the umbrella of all learn-* modules.
 
-## Acknowledgements
-
-Chapter 11 grew out of joint work with Gebrecherkos Gebreslassie.
-
 ## Licence
 
 Code: Apache-2.0 ([LICENSE](LICENSE)). Theory texts and figures in `1_theory/`: CC BY 4.0.

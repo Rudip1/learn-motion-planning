@@ -192,5 +192,3 @@ Figure 11.2 (seed 7) Q-learning fell off it 139 times and SARSA 40 times.
 4. R. S. Sutton, A. G. Barto, *Reinforcement Learning: An Introduction*, 2nd ed., MIT Press, 2018, ch. 3, 4 and 6.
 5. C. J. C. H. Watkins, P. Dayan, "Q-learning", *Machine Learning* 8:279–292, 1992.
 6. S. Thrun, W. Burgard, D. Fox, *Probabilistic Robotics*, MIT Press, 2005, ch. 14.
-
-*Acknowledgement: this chapter grew out of joint work with Gebrecherkos Gebreslassie.*
